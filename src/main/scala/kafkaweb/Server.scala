@@ -65,11 +65,15 @@ object Server {
       (get & path("messages" / Segment)) { topic =>
         parameter("nextToken" ?) { maybeToken =>
           complete {
+            val maybeOffsets = maybeToken.map { str =>
+              Serialization.read[Seq[Long]](str)
+            }
+
             cache
               .get(topic)
               .toScala
               .flatMap { producer =>
-                producer.next()
+                producer.next(maybeOffsets)
               }.map { result =>
                 val body = Map(
                   "messages" ->
