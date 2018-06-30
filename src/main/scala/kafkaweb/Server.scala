@@ -9,6 +9,7 @@ import akka.http.scaladsl.model._
 import akka.http.scaladsl.server.Directives._
 import akka.stream.ActorMaterializer
 import com.github.benmanes.caffeine.cache.{AsyncCacheLoader, Caffeine, RemovalCause, RemovalListener}
+import kafkaweb.utils.IoExecutionContext
 import org.json4s.DefaultFormats
 import org.json4s.native.Serialization
 
@@ -29,6 +30,7 @@ object Server {
     implicit val executionContext = system.dispatcher
     implicit val log = Logging(system, "server")
     implicit val formats = DefaultFormats
+    implicit val ioExecution = new IoExecutionContext(system.dispatchers.lookup("blocking-io-dispatcher"))
 
     val cache =
       Caffeine.newBuilder()
@@ -36,8 +38,8 @@ object Server {
         .expireAfterWrite(10, TimeUnit.MINUTES)
         .expireAfterAccess(1, TimeUnit.MINUTES)
         .executor(system.dispatcher)
-        .removalListener(new RemovalListener[String, Producer] {
-          override def onRemoval(key: String, value: Producer, cause: RemovalCause): Unit = {
+        .removalListener(new RemovalListener[String, Consumer] {
+          override def onRemoval(key: String, value: Consumer, cause: RemovalCause): Unit = {
             log.debug("terminating {}", key)
             value.close().onComplete {
               case Success(_) => log.info("{} terminated", key)
@@ -45,10 +47,10 @@ object Server {
             }
           }
         })
-        .buildAsync(new AsyncCacheLoader[String, Producer] {
-          override def asyncLoad(key: String, executor: Executor): CompletableFuture[Producer] = {
+        .buildAsync(new AsyncCacheLoader[String, Consumer] {
+          override def asyncLoad(key: String, executor: Executor): CompletableFuture[Consumer] = {
             log.debug("creating {}", key)
-            Producer
+            Consumer
               .create(key)
               .andThen {
                 case Success(_) => log.info("{} created", key)
@@ -68,23 +70,14 @@ object Server {
               .toScala
               .flatMap { producer =>
                 producer.next()
-              }.map { case (records, next) =>
+              }.map { result =>
                 val body = Map(
                   "messages" ->
-                    records
-                      .records
-                      .iterator()
-                      .asScala
-                      .map { record =>
-                        Map(
-                          "key" -> record.key(),
-                          "value" -> record.value()
-                        )
-                      }.toSeq,
-                  "nextToken" -> ""
+                    result
+                      .messages
+                      .map { record => Map("key" -> record.key, "value" -> record.value) },
+                  "nextToken" -> Serialization.write(result.offsets)
                 )
-
-              println(body)
 
               HttpEntity(ContentTypes.`application/json`, Serialization.write(body))
             }.andThen {
