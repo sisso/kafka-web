@@ -10,6 +10,7 @@ import org.apache.kafka.clients.consumer.KafkaConsumer
 
 import scala.collection.JavaConverters._
 import scala.concurrent.Future
+import scala.util.Random
 
 trait Consumer {
   def next(maybeOffsets: Option[Seq[Long]]): Future[Consumer.Result]
@@ -27,9 +28,7 @@ object Consumer {
 
     val props = new JProperties()
     props.put("bootstrap.servers", "localhost:9092")
-    props.put("group.id", "test")
-    props.put("enable.auto.commit", "true")
-    props.put("auto.commit.interval.ms", "1000")
+    props.put("group.id", arbitraryString)
     props.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer")
     props.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer")
 
@@ -104,4 +103,6 @@ object Consumer {
       }
     }
   }
+
+  private def arbitraryString = Math.abs(Random.nextInt()).toString
 }
