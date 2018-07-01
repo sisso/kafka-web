@@ -13,15 +13,15 @@ import scala.concurrent.Future
 import scala.util.Random
 
 trait Consumer {
-  def next(maybeOffsets: Option[Seq[Long]]): Future[Consumer.Result]
+  def next(maybeOffsets: Option[Consumer.Offsets]): Future[Consumer.Result]
 
   def close(): Future[Done]
 }
 
 object Consumer {
+  case class Offsets(value: Map[Int, Long])
   case class Message(key: String, value: String)
-
-  case class Result(messages: Seq[Message], offsets: Seq[Long])
+  case class Result(messages: Seq[Message], offsets: Offsets)
 
   def create(topic: String)(implicit actorSystem: ActorSystem, ioExecutionContext: IoExecutionContext): Future[Consumer] = ioExecutionContext.block {
     val log = Logging(actorSystem, s"Consumer-${topic}")
@@ -31,31 +31,35 @@ object Consumer {
     props.put("group.id", arbitraryString)
     props.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer")
     props.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer")
+    props.put("auto.offset.reset", "earliest")
+    props.put("enable.auto.commit", "false")
 
     val consumer = new KafkaConsumer[String, String](props)
     consumer.subscribe(JArrays.asList(topic))
 
-    var state = Seq[Long]()
+    var state = Offsets(Map.empty)
 
     new Consumer {
-      override def next(maybeOffsets: Option[Seq[Long]]): Future[Result] = ioExecutionContext.block {
+      override def next(maybeOffsets: Option[Consumer.Offsets]): Future[Result] = ioExecutionContext.block {
         consumer.synchronized {
             maybeOffsets match {
               case Some(offsets) =>
                 if (offsets == state) {
                   log.info("valid state")
                 } else {
-                  log.info("invalid state, seeking to {}", offsets)
-                  consumer
-                    .assignment()
-                    .asScala
-                    .toSeq
-                    .sortBy(_.partition())
-                    .zip(offsets)
-                    .foreach { case (partition, offset) =>
-                      log.info("seeking {} to {}", partition, offset)
-                      consumer.seek(partition, offset)
-                    }
+//                  log.info("invalid state, seeking to {}", offsets)
+//                  consumer
+//                    .assignment()
+//                    .asScala
+//                    .toSeq
+//                    .sortBy(_.partition())
+//                    .zip(offsets)
+//                    .foreach { case (partition, offset) =>
+//                      log.info("seeking {} to {}", partition, offset)
+//                      consumer.seek(partition, offset)
+//                    }
+
+                  ???
                 }
 
               case None =>
@@ -73,14 +77,13 @@ object Consumer {
           val messages = recs.map { record => Message(record.key(), record.value()) }
 
           val nextOffsets =
-            recs
-            .groupBy(_.partition())
-            .map { i =>
-              i._1 -> i._2.map(_.offset()).max
+            Offsets {
+              recs
+              .groupBy(_.partition())
+              .map { i =>
+                i._1 -> i._2.map(_.offset()).max
+              }
             }
-            .toSeq
-            .sortBy(_._1)
-            .map(_._2)
 
           state = nextOffsets
 

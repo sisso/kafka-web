@@ -66,7 +66,7 @@ object Server {
         parameter("nextToken" ?) { maybeToken =>
           complete {
             val maybeOffsets = maybeToken.map { str =>
-              Serialization.read[Seq[Long]](str)
+              Serialization.read[Consumer.Offsets](str)
             }
 
             cache

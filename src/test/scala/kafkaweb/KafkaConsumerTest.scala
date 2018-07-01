@@ -11,7 +11,7 @@ import org.apache.kafka.common.TopicPartition
 import scala.collection.JavaConverters._
 import scala.util.Random
 
-class KafkaConsumerTest extends WordSpec {
+class KafkaConsumerTest extends WordSpec with ProducerScenery {
 
 
   "direct consumer" should {
@@ -53,28 +53,4 @@ class KafkaConsumerTest extends WordSpec {
       }
     }
   }
-
-  private def prepare(): (String, Seq[String]) = {
-    val props = new JProperties()
-    props.put("bootstrap.servers", "localhost:9092")
-    props.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer")
-    props.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer")
-
-    val producer = new KafkaProducer[String, String](props)
-    val topic = "topic-1"
-
-    val keys = (0 until 1000).map(_.toString)
-
-    val futures =
-      keys.map { i =>
-        producer.send(new ProducerRecord[String, String](topic, i, i))
-      }
-
-    futures.foreach(_.get())
-    producer.close()
-
-    (topic, keys)
-  }
-
-  private def arbitraryString = Math.abs(Random.nextInt()).toString
 }
