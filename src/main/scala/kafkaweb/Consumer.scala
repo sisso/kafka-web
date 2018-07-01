@@ -7,8 +7,10 @@ import akka.actor.ActorSystem
 import akka.event.Logging
 import kafkaweb.utils.IoExecutionContext
 import org.apache.kafka.clients.consumer.KafkaConsumer
+import org.apache.kafka.common.TopicPartition
 
 import scala.collection.JavaConverters._
+import scala.collection.immutable
 import scala.concurrent.Future
 import scala.util.Random
 
@@ -23,30 +25,65 @@ object Consumer {
   case class Message(key: String, value: String)
   case class Result(messages: Seq[Message], offsets: Offsets)
 
-  def create(topic: String)(implicit actorSystem: ActorSystem, ioExecutionContext: IoExecutionContext): Future[Consumer] = ioExecutionContext.block {
-    val log = Logging(actorSystem, s"Consumer-${topic}")
-
-    val props = new JProperties()
-    props.put("bootstrap.servers", "localhost:9092")
-    props.put("group.id", arbitraryString)
-    props.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer")
-    props.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer")
-    props.put("auto.offset.reset", "earliest")
-    props.put("enable.auto.commit", "false")
-
-    val consumer = new KafkaConsumer[String, String](props)
-    consumer.subscribe(JArrays.asList(topic))
-
-    var state = Offsets(Map.empty)
-
+  def create(topic: String)(implicit actorSystem: ActorSystem, ioExecutionContext: IoExecutionContext): Future[Consumer] = Future.successful {
     new Consumer {
+      private val lock = new Object()
+
+      private var consumerHolder: Option[KafkaConsumer[String, String]] = None
+
+      private var state = Offsets(Map.empty)
+
+      private val log = Logging(actorSystem, s"Consumer-${topic}")
+
       override def next(maybeOffsets: Option[Consumer.Offsets]): Future[Result] = ioExecutionContext.block {
-        consumer.synchronized {
-            maybeOffsets match {
-              case Some(offsets) =>
-                if (offsets == state) {
-                  log.info("valid state")
-                } else {
+        lock.synchronized {
+          val consumer =
+            consumerHolder match {
+              case Some(consumer) => consumer
+              case None =>
+                val props = new JProperties()
+                props.put("bootstrap.servers", "localhost:9092")
+                props.put("group.id", arbitraryString)
+                props.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer")
+                props.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer")
+                props.put("auto.offset.reset", "earliest")
+                props.put("enable.auto.commit", "false")
+
+                val consumer = new KafkaConsumer[String, String](props)
+
+                maybeOffsets match {
+                  case Some(offsets) =>
+                    log.info("creating new consumer {} at offsets {}", topic, offsets)
+
+                    val assign =
+                      offsets.value.map { case (partition, _) =>
+                        new TopicPartition(topic, partition)
+                      }.toSeq.asJava
+
+                    consumer.assign(assign)
+
+                    offsets.value.foreach { case (partition, offset) =>
+                      log.debug("seek {} to {}/{}", topic, partition, offset)
+                      consumer.seek(new TopicPartition(topic, partition), offset)
+                    }
+
+                    state = offsets
+
+                  case None =>
+                    log.info("creating new consumer {}", topic)
+                    consumer.subscribe(JArrays.asList(topic))
+                }
+
+                consumerHolder = Some(consumer)
+
+                consumer
+            }
+
+          maybeOffsets match {
+            case Some(offsets) =>
+              if (offsets == state) {
+                log.info("valid state")
+              } else {
 //                  log.info("invalid state, seeking to {}", offsets)
 //                  consumer
 //                    .assignment()
@@ -59,13 +96,13 @@ object Consumer {
 //                      consumer.seek(partition, offset)
 //                    }
 
-                  ???
-                }
+                ???
+              }
 
-              case None =>
-                log.info("seeking to start")
-                consumer.seekToBeginning(consumer.assignment())
-            }
+            case None =>
+              log.info("seeking to start")
+              consumer.seekToBeginning(consumer.assignment())
+          }
 
           val records = consumer.poll(100)
 
@@ -95,10 +132,10 @@ object Consumer {
 
       override def close(): Future[Done] = {
         ioExecutionContext.block {
-          consumer.wakeup()
+          consumerHolder.foreach { _.wakeup() }
 
-          consumer.synchronized {
-            consumer.close()
+          lock.synchronized {
+            consumerHolder.foreach(_.close())
           }
 
           Done

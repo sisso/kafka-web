@@ -12,21 +12,22 @@ class ConsumerTest extends WordSpec with ProducerScenery with BeforeAndAfterAll{
   implicit val ex = actorSystem.dispatcher
   implicit val ioExecution = new IoExecutionContext(actorSystem.dispatchers.lookup("blocking-io-dispatcher"))
 
-  val scenery = prepare("topic-2", 1000)
-
   "Consumer" should {
-    "consume all messages from start if no offset is informed" in {
-      val result = fetchWithConsumer(None)
+    "create consumer from start" in {
+      val scenery = prepare(arbitraryString, 1000)
+      val result = fetchWithConsumer(scenery.topic, None, scenery.keys.size)
       val keys = Await.result(result, longAwait)
       assert(keys.sorted == scenery.keys.map(_.key).sorted)
     }
 
-    "consume half messages from middle" in {
-      val middle = scenery.keys(scenery.keys.size / 2)
+    "create consumer with half offset" in {
+      val scenery = prepare(arbitraryString, 1000)
+      val halfAmount = scenery.keys.size / 2
+      val middle = scenery.keys(halfAmount)
       val start = Map(0 -> middle.offset)
-      val result = fetchWithConsumer(Some(Consumer.Offsets(start)))
+      val result = fetchWithConsumer(scenery.topic, Some(Consumer.Offsets(start)), halfAmount)
       val keys = Await.result(result, longAwait)
-      assert(keys.sorted == scenery.keys.map(_.key).sorted)
+      assert(keys.sorted == scenery.keys.drop(halfAmount).map(_.key).sorted)
     }
   }
 
@@ -34,12 +35,16 @@ class ConsumerTest extends WordSpec with ProducerScenery with BeforeAndAfterAll{
     actorSystem.terminate()
   }
 
-  private def fetchWithConsumer(start: Option[Consumer.Offsets]) = {
-    Consumer.create("topic-0").flatMap { consumer =>
+  private def fetchWithConsumer(topic: String, start: Option[Consumer.Offsets], expectedAmount: Int) = {
+    Consumer.create(topic).flatMap { consumer =>
       def fetchNext(buffer: Vector[String], token: Option[Consumer.Offsets]): Future[Seq[String]] = {
         consumer.next(token)
           .flatMap { result =>
-            if (buffer.size >= scenery.keys.size) Future.successful(buffer)
+//            result.messages.foreach { m =>
+//              println(s"consume ${m.key}")
+//            }
+
+            if (buffer.size >= expectedAmount) Future.successful(buffer)
             else fetchNext(buffer ++ result.messages.map(_.key), Some(result.offsets))
           }
       }

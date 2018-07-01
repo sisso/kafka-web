@@ -33,6 +33,8 @@ trait ProducerScenery extends TestUtils {
               promise.failure(exception)
             else
               promise.success {
+//                println(s"producing ${i}")
+
                 TestMessage(
                   key = i,
                   offset = metadata.offset()
