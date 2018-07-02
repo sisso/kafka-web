@@ -1,5 +1,7 @@
 package kafkaweb
 
+import java.nio.charset.StandardCharsets
+import java.util.Base64
 import java.util.concurrent.{CompletableFuture, Executor, TimeUnit}
 
 import akka.actor.ActorSystem
@@ -65,29 +67,36 @@ object Server {
       (get & path("messages" / Segment)) { topic =>
         parameter("nextToken" ?) { maybeToken =>
           complete {
-            val maybeOffsets = maybeToken.map { str =>
-              Serialization.read[Consumer.Offsets](str)
-            }
+            val maybeOffsets =
+              maybeToken.map { str =>
+                val decoded = new String(Base64.getDecoder.decode(str), StandardCharsets.UTF_8)
+                Serialization.read[Consumer.Offsets](decoded)
+              }
 
             cache
               .get(topic)
               .toScala
               .flatMap { producer =>
                 producer.next(maybeOffsets)
-              }.map { result =>
-                val body = Map(
-                  "messages" ->
-                    result
-                      .messages
-                      .map { record => Map("key" -> record.key, "value" -> record.value) },
-                  "nextToken" -> Serialization.write(result.offsets)
-                )
+              }
+              .map { result =>
+                val nextTokenStr = new String(Base64.getEncoder.encode(Serialization.write(result.offsets).getBytes(StandardCharsets.UTF_8)), StandardCharsets.UTF_8)
 
-              HttpEntity(ContentTypes.`application/json`, Serialization.write(body))
+                log.debug("request for {}/{} started, returning {} messages with token {}", topic, maybeOffsets, result.messages.size, result.offsets.value)
+
+                val body = Map(
+                    "messages" ->
+                      result
+                        .messages
+                        .map { record => Map("key" -> record.key, "value" -> record.value) },
+                    "nextToken" -> nextTokenStr
+                  )
+
+                HttpEntity(ContentTypes.`application/json`, Serialization.write(body))
             }.andThen {
-              case Success(_) => log.info("request for {}/{}", topic, maybeToken.isDefined)
+              case Success(_) => log.info("request for {}/{}", topic, maybeToken)
               case Failure(e) =>
-                log.error(e, "fail {}/{}", topic, maybeToken.isDefined)
+                log.error(e, "fail {}/{}", topic, maybeToken)
                 throw e
             }
           }

@@ -33,7 +33,7 @@ class ConsumerTest extends WordSpec with ProducerScenery with BeforeAndAfterAll{
     }
 
     "support parallel retries during consumer" in {
-      val scenery = prepare(arbitraryString, 10000)
+      val scenery = prepare("topic-0", 10000)
       val consumer = Await.result(Consumer.create(scenery.topic), shortAwait)
 
       val next = Await.result(consumer.next(None), shortAwait).offsets

@@ -116,7 +116,7 @@ object Consumer {
               }
             }
 
-          state = nextOffsets
+          state = Offsets(state.value ++ nextOffsets.value)
 
           log.debug("consuming {} messages and moving local offset to {}", messages.size, state)
 
