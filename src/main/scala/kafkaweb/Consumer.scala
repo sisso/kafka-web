@@ -33,7 +33,7 @@ object Consumer {
 
       private var state = Offsets(Map.empty)
 
-      private val log = Logging(actorSystem, s"Consumer-${topic}")
+      private val log = Logging(actorSystem, s"kafkaweb.Consumer-${topic}")
 
       override def next(maybeOffsets: Option[Consumer.Offsets]): Future[Result] = ioExecutionContext.block {
         lock.synchronized {
@@ -63,8 +63,9 @@ object Consumer {
                     consumer.assign(assign)
 
                     offsets.value.foreach { case (partition, offset) =>
-                      log.debug("seek {} to {}/{}", topic, partition, offset)
-                      consumer.seek(new TopicPartition(topic, partition), offset)
+                      val nextOffset = offset + 1
+                      log.debug("seek {} to {}/{}", topic, partition, nextOffset)
+                      consumer.seek(new TopicPartition(topic, partition), nextOffset)
                     }
 
                     state = offsets
@@ -82,21 +83,14 @@ object Consumer {
           maybeOffsets match {
             case Some(offsets) =>
               if (offsets == state) {
-                log.info("valid state")
+                log.debug("valid state")
               } else {
-//                  log.info("invalid state, seeking to {}", offsets)
-//                  consumer
-//                    .assignment()
-//                    .asScala
-//                    .toSeq
-//                    .sortBy(_.partition())
-//                    .zip(offsets)
-//                    .foreach { case (partition, offset) =>
-//                      log.info("seeking {} to {}", partition, offset)
-//                      consumer.seek(partition, offset)
-//                    }
-
-                ???
+                log.info("invalid state, seeking to {}", offsets)
+                offsets.value.foreach { case (partition, offset) =>
+                  val nextOffset = offset + 1
+                  log.debug("seek {} to {}/{}", topic, partition, nextOffset)
+                  consumer.seek(new TopicPartition(topic, partition), nextOffset)
+                }
               }
 
             case None =>
@@ -124,7 +118,7 @@ object Consumer {
 
           state = nextOffsets
 
-          log.info("consuming {} messages and moving local offset to {}", messages.size, state)
+          log.debug("consuming {} messages and moving local offset to {}", messages.size, state)
 
           Result(messages ,nextOffsets)
         }
