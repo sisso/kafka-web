@@ -1,4 +1,6 @@
-lazy val testsLibs = Seq(
+import sbt.Keys.scalaVersion
+
+lazy val testLibs = Seq(
   libraryDependencies += "org.scalactic" %% "scalactic" % "3.0.5",
   libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.5" % "test",
 )
@@ -24,5 +26,5 @@ lazy val server = project
 		libraryDependencies += "com.github.ben-manes.caffeine" % "caffeine" % "2.6.2",
 		libraryDependencies += "com.google.code.findbugs" % "jsr305" % "2.0.3", // require by some crap guava used by some crap library
 		libraryDependencies += "org.apache.kafka" % "kafka-clients" % "1.1.0",
-    testsLibs
+		testLibs
 	)

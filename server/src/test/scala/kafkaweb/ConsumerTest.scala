@@ -1,17 +1,8 @@
 package kafkaweb
 
-import akka.Done
-import akka.actor.ActorSystem
-import kafkaweb.utils.IoExecutionContext
-import org.scalatest.{BeforeAndAfterAll, WordSpec}
-
 import scala.concurrent.{Await, Future}
 
-class ConsumerTest extends WordSpec with ProducerScenery with BeforeAndAfterAll{
-  implicit val actorSystem = ActorSystem()
-  implicit val ex = actorSystem.dispatcher
-  implicit val ioExecution = new IoExecutionContext(actorSystem.dispatchers.lookup("blocking-io-dispatcher"))
-
+class ConsumerTest extends UnitTest with ProducerScenery {
   "Consumer" should {
     "create consumer from start" in {
       val scenery = prepare(arbitraryString, 1000)
@@ -52,13 +43,6 @@ class ConsumerTest extends WordSpec with ProducerScenery with BeforeAndAfterAll{
       }
     }
   }
-
-  override protected def afterAll(): Unit = {
-    actorSystem.terminate()
-  }
-
-  private def await[T](f: Future[T]): T =
-    Await.result(f, shortAwait)
 
   private def fetchWithConsumer(topic: String, start: Option[Consumer.Offsets], expectedAmount: Int) = {
     Consumer.create(topic).flatMap { consumer =>
